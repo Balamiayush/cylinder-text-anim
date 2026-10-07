@@ -1,0 +1,299 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>3D Cylinder Perspective Scroll</title>
+<style>
+  @import url("https://fonts.googleapis.com/css2?family=Familjen+Grotesk:wght@400..700&display=swap");
+
+  :root { --fs: 1; }
+  * { box-sizing: border-box; }
+  html { background: #fff; }
+  body { margin: 0; font-family: "Familjen Grotesk", system-ui, sans-serif; color: #151515; }
+
+  .spacer {
+    height: 100svh; display: flex; align-items: center; justify-content: center;
+    color: #fff; font-size: 1.5rem; font-weight: 700;
+  }
+  .spacer.top { background: #3b82f6; }
+  .spacer.bottom { background: #ef4444; }
+
+  .cylinder__wrapper {
+    width: 100%; height: 100svh; position: relative; perspective: 1000px;
+    overflow: hidden; background: #fff;
+  }
+  .cylinder__text__wrapper {
+    position: absolute; inset: 0; transform-style: preserve-3d;
+    transform-origin: center center; text-align: center; will-change: transform;
+  }
+  .cylinder__text__item {
+    font-size: calc(clamp(2.5rem, 7vw, 5.5rem) * var(--fs));
+    font-weight: 700; text-transform: uppercase; position: absolute;
+    top: 50%; left: 50%; width: 100%; line-height: 1; color: #151515;
+    backface-visibility: hidden; -webkit-backface-visibility: hidden;
+    will-change: transform, opacity; opacity: .12;
+  }
+
+  /* control panel */
+  .panel {
+    position: fixed; right: 16px; bottom: 16px; z-index: 50; width: 292px;
+    max-width: calc(100vw - 32px); background: rgba(21,21,21,.92); color: #f4f4f4;
+    border-radius: 14px; backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+    box-shadow: 0 10px 40px rgba(0,0,0,.25); font-size: 13px; overflow: hidden;
+  }
+  .panel header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 14px; cursor: pointer; user-select: none;
+  }
+  .panel header b { font-weight: 600; font-size: 14px; }
+  .panel .readout { color: #aaa; font-variant-numeric: tabular-nums; }
+  .panel .body { padding: 0 14px 14px; display: grid; gap: 10px; max-height: 70svh; overflow: auto; }
+  .panel.closed .body { display: none; }
+  .bar { height: 3px; background: #333; border-radius: 3px; overflow: hidden; }
+  .bar i { display: block; height: 100%; width: 0; background: #fff; }
+  .nav { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  button {
+    font: inherit; color: inherit; background: #2c2c2c; border: 0; border-radius: 8px;
+    padding: 8px 10px; cursor: pointer;
+  }
+  button:hover { background: #3a3a3a; }
+  button:focus-visible, input:focus-visible, header:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+  .row { display: grid; gap: 4px; }
+  .row label { display: flex; justify-content: space-between; color: #cfcfcf; }
+  .row output { color: #fff; font-variant-numeric: tabular-nums; }
+  input[type=range] { width: 100%; accent-color: #fff; margin: 0; }
+  .check { display: flex; align-items: center; justify-content: space-between; color: #cfcfcf; }
+  .seg { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .seg button.on { background: #fff; color: #151515; }
+</style>
+</head>
+<body>
+  <div class="spacer top">Scroll Down</div>
+
+  <section class="cylinder__wrapper">
+    <div class="cylinder__text__wrapper">
+      <div class="cylinder__text__item">Silver Crest</div>
+      <div class="cylinder__text__item">Trafigura</div>
+      <div class="cylinder__text__item">Agnico Eagle</div>
+      <div class="cylinder__text__item">Aura Mineral Inc.</div>
+      <div class="cylinder__text__item">Capstone</div>
+      <div class="cylinder__text__item">Coeur Mining</div>
+      <div class="cylinder__text__item">Endeavour Silver</div>
+      <div class="cylinder__text__item">Penoles</div>
+      <div class="cylinder__text__item">Fresnillo</div>
+    </div>
+  </section>
+
+  <div class="spacer bottom">Section Below</div>
+
+  <aside class="panel" id="panel" aria-label="Animation controls">
+    <header id="panelHead" tabindex="0" role="button" aria-expanded="true">
+      <b>Animation controls</b><span class="readout" id="readout">1 / 9</span>
+    </header>
+    <div class="body">
+      <div class="bar"><i id="barFill"></i></div>
+      <div class="nav">
+        <button id="prev">Previous</button>
+        <button id="next">Next</button>
+      </div>
+      <div class="seg" id="arcSeg">
+        <button data-arc="180" class="on">Half drum</button>
+        <button data-arc="360">Full drum</button>
+      </div>
+      <div id="sliders" style="display:grid;gap:10px"></div>
+      <label class="check"><span>Snap to nearest item</span><input type="checkbox" id="snap" /></label>
+      <button id="reset">Reset to defaults</button>
+    </div>
+  </aside>
+
+  <script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/ScrollTrigger.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/lenis@1.1.13/dist/lenis.min.js"></script>
+  <script>
+  document.addEventListener("DOMContentLoaded", () => {
+    gsap.registerPlugin(ScrollTrigger);
+
+    const DEFAULTS = {
+      arc: 180, radius: 0.4, scroll: 80, smooth: 0.1, lenis: 0.08,
+      falloff: 1.6, dim: 0.12, perspective: 1000, size: 1, snap: false,
+    };
+    const S = { ...DEFAULTS };
+
+    // slider config: key, label, min, max, step, formatter
+    const SLIDERS = [
+      ["radius", "Drum radius", 0.15, 0.9, 0.01, v => v.toFixed(2)],
+      ["perspective", "Perspective", 400, 2500, 50, v => v + "px"],
+      ["size", "Text size", 0.5, 1.6, 0.05, v => v.toFixed(2) + "×"],
+      ["scroll", "Scroll per item", 30, 200, 5, v => v + "% vh"],
+      ["smooth", "Rotation smoothing", 0.02, 1, 0.01, v => v >= 1 ? "off" : v.toFixed(2)],
+      ["lenis", "Scroll inertia", 0.03, 1, 0.01, v => v >= 1 ? "off" : v.toFixed(2)],
+      ["falloff", "Focus width", 0.5, 3, 0.1, v => v.toFixed(1)],
+      ["dim", "Inactive opacity", 0, 0.6, 0.01, v => v.toFixed(2)],
+    ];
+
+    const wrapper = document.querySelector(".cylinder__wrapper");
+    const drum = document.querySelector(".cylinder__text__wrapper");
+    const items = [...document.querySelectorAll(".cylinder__text__item")];
+    const n = items.length;
+
+    /* ---------- smooth scrolling (single RAF loop via GSAP ticker) ---------- */
+    const lenis = new Lenis({ lerp: S.lenis, smoothWheel: true });
+    lenis.on("scroll", ScrollTrigger.update);
+
+    /* ---------- geometry ---------- */
+    const setDrum = gsap.quickSetter(drum, "rotationX", "deg");
+    const setOpacity = items.map(el => gsap.quickSetter(el, "opacity"));
+    let step = S.arc / n;
+
+    function layout() {
+      step = S.arc / n;
+      // radius scales with viewport; 0.4 == original look
+      const r = Math.min(innerWidth, innerHeight) * S.radius;
+      wrapper.style.perspective = S.perspective + "px";
+      document.documentElement.style.setProperty("--fs", S.size);
+      items.forEach((el, i) => {
+        gsap.set(el, {
+          xPercent: -50, yPercent: -50,
+          rotationX: -i * step,
+          z: r,
+          transformOrigin: `50% 50% -${r}px`,
+        });
+      });
+      lastRendered = null;
+    }
+
+    /* ---------- scroll -> target, ticker -> eased current ---------- */
+    let target = 0, cur = 0, lastRendered = null, st;
+
+    function buildTrigger() {
+      if (st) st.kill();
+      st = ScrollTrigger.create({
+        trigger: wrapper,
+        start: "top top",
+        end: () => "+=" + Math.round((n - 1) * (S.scroll / 100) * innerHeight),
+        pin: true,
+        invalidateOnRefresh: true,
+        onUpdate: self => { target = self.progress; },
+      });
+      target = cur = st.progress;
+    }
+
+    const readout = document.getElementById("readout");
+    const barFill = document.getElementById("barFill");
+    let lastIdx = -1;
+
+    function render() {
+      if (lastRendered === cur) return;
+      lastRendered = cur;
+      const angle = cur * step * (n - 1);
+      setDrum(angle);
+      const width = step * S.falloff;
+      for (let i = 0; i < n; i++) {
+        const d = Math.abs(i * step - angle);
+        const t = Math.max(0, 1 - d / width);
+        const eased = t * t * (3 - 2 * t); // smoothstep: continuous fade, no tweens
+        setOpacity[i](S.dim + (1 - S.dim) * eased);
+      }
+      const idx = Math.round(cur * (n - 1));
+      if (idx !== lastIdx) { lastIdx = idx; readout.textContent = `${idx + 1} / ${n}`; }
+      barFill.style.width = (cur * 100).toFixed(1) + "%";
+    }
+
+    gsap.ticker.add((time, deltaTime) => {
+      lenis.raf(time * 1000);
+      // frame-rate independent exponential smoothing
+      const k = S.smooth >= 1 ? 1 : 1 - Math.pow(1 - S.smooth, deltaTime / 16.667);
+      cur += (target - cur) * k;
+      if (Math.abs(target - cur) < 0.00002) cur = target;
+      render();
+    });
+    gsap.ticker.lagSmoothing(0);
+
+    /* ---------- navigation + snapping ---------- */
+    function itemY(i) { return st.start + (i / (n - 1)) * (st.end - st.start); }
+    function goTo(i) {
+      i = Math.max(0, Math.min(n - 1, i));
+      lenis.scrollTo(itemY(i), { duration: 1.2, easing: t => 1 - Math.pow(1 - t, 4) });
+    }
+    const current = () => Math.round(target * (n - 1));
+    document.getElementById("prev").onclick = () => goTo(current() - 1);
+    document.getElementById("next").onclick = () => goTo(current() + 1);
+
+    let snapTimer;
+    lenis.on("scroll", () => {
+      if (!S.snap) return;
+      clearTimeout(snapTimer);
+      snapTimer = setTimeout(() => {
+        if (!st.isActive) return;
+        const y = itemY(Math.round(st.progress * (n - 1)));
+        if (Math.abs(y - lenis.scroll) > 2) lenis.scrollTo(y, { duration: .7 });
+      }, 160);
+    });
+
+    /* ---------- controls ---------- */
+    const slidersEl = document.getElementById("sliders");
+    const inputs = {};
+    SLIDERS.forEach(([key, label, min, max, stepV, fmt]) => {
+      const row = document.createElement("div");
+      row.className = "row";
+      row.innerHTML = `<label for="s-${key}"><span>${label}</span><output></output></label>
+        <input id="s-${key}" type="range" min="${min}" max="${max}" step="${stepV}" />`;
+      const input = row.querySelector("input"), out = row.querySelector("output");
+      inputs[key] = { input, out, fmt };
+      input.addEventListener("input", () => {
+        S[key] = parseFloat(input.value);
+        out.textContent = fmt(S[key]);
+        apply(key);
+      });
+      slidersEl.appendChild(row);
+    });
+
+    function apply(key) {
+      if (key === "lenis") lenis.options.lerp = S.lenis;
+      if (["radius", "perspective", "size"].includes(key)) layout();
+      if (key === "scroll") ScrollTrigger.refresh();
+      lastRendered = null;
+    }
+
+    function syncUI() {
+      for (const k in inputs) { inputs[k].input.value = S[k]; inputs[k].out.textContent = inputs[k].fmt(S[k]); }
+      document.getElementById("snap").checked = S.snap;
+      document.querySelectorAll("#arcSeg button").forEach(b => b.classList.toggle("on", +b.dataset.arc === S.arc));
+    }
+
+    document.querySelectorAll("#arcSeg button").forEach(b => b.addEventListener("click", () => {
+      S.arc = +b.dataset.arc; syncUI(); layout();
+    }));
+    document.getElementById("snap").addEventListener("change", e => { S.snap = e.target.checked; });
+    document.getElementById("reset").addEventListener("click", () => {
+      Object.assign(S, DEFAULTS);
+      lenis.options.lerp = S.lenis;
+      syncUI(); layout(); ScrollTrigger.refresh();
+    });
+
+    const panel = document.getElementById("panel");
+    const head = document.getElementById("panelHead");
+    const toggle = () => {
+      panel.classList.toggle("closed");
+      head.setAttribute("aria-expanded", !panel.classList.contains("closed"));
+    };
+    head.addEventListener("click", toggle);
+    head.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(); } });
+    if (innerWidth < 640) toggle();
+
+    /* ---------- init ---------- */
+    syncUI();
+    layout();
+    buildTrigger();
+    render();
+
+    let resizeTimer;
+    addEventListener("resize", () => {
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(() => { layout(); ScrollTrigger.refresh(); }, 120);
+    });
+  });
+  </script>
+</body>
+</html>
